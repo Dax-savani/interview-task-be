@@ -1,26 +1,35 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
-import jwt, {JwtPayload, VerifyErrors} from "jsonwebtoken";
+import jwt, { JwtPayload, VerifyErrors } from "jsonwebtoken";
 import User from "../models/User";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Generate JWT Tokens
+// Helper function to generate JWT tokens
 const generateTokens = (userId: string) => {
-    const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET!);
-    const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!);
+    const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
+    const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, { expiresIn: "7d" });
     return { accessToken, refreshToken };
+};
+
+// Error response function
+const errorResponse = (res: Response, statusCode: number, message: string) => {
+    res.status(statusCode).json({ error: message });
 };
 
 // ✅ Register User
 export const register = async (req: Request, res: Response): Promise<void> => {
     try {
         const { username, email, password } = req.body;
+
+        if (!username || !email || !password) {
+            return errorResponse(res, 400, "All fields are required");
+        }
+
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-            res.status(400).json({ error: "Email already exists" });
-            return;
+            return errorResponse(res, 400, "Email already exists");
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -28,56 +37,51 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
         res.status(201).json({ message: "User registered", userId: user.id });
     } catch (err) {
-        res.status(500).json({ error: "Internal server error" });
+        errorResponse(res, 500, "Internal server error");
     }
 };
 
+// ✅ Login User
 export const login = async (req: Request, res: Response): Promise<void> => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email }).select("+password");
+        if (!email || !password) {
+            return errorResponse(res, 400, "Email and password are required");
+        }
 
+        const user = await User.findOne({ email }).select("+password");
         if (!user) {
-            res.status(400).json({ error: "Invalid email or password" });
-            return;
+            return errorResponse(res, 401, "Invalid email or password");
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            res.status(400).json({ error: "Invalid email or password" });
-            return;
+            return errorResponse(res, 401, "Invalid email or password");
         }
 
         const tokens = generateTokens(user.id);
         user.refreshToken = tokens.refreshToken;
         await user.save();
 
-        // Fetch user again without the password field
         const userWithoutPassword = await User.findById(user._id).select("-password");
 
-        res.json({
-            user: userWithoutPassword,
-            tokens
-        });
+        res.json({ user: userWithoutPassword, tokens });
     } catch (err) {
-        res.status(500).json({ error: "Internal server error" });
+        errorResponse(res, 500, "Internal server error");
     }
 };
-
 
 // ✅ Refresh Token
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
     try {
         const { refreshToken } = req.body;
         if (!refreshToken) {
-            res.status(401).json({ error: "Refresh token required" });
-            return;
+            return errorResponse(res, 401, "Refresh token required");
         }
 
         const user = await User.findOne({ refreshToken });
         if (!user) {
-            res.status(403).json({ error: "Invalid refresh token" });
-            return;
+            return errorResponse(res, 403, "Invalid refresh token");
         }
 
         jwt.verify(
@@ -85,11 +89,11 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
             process.env.JWT_REFRESH_SECRET!,
             (err: VerifyErrors | null, decoded: JwtPayload | string | undefined) => {
                 if (err) {
-                    return res.status(403).json({ message: "Invalid refresh token" });
+                    return errorResponse(res, 403, "Invalid refresh token");
                 }
 
                 if (typeof decoded === "string" || !decoded) {
-                    return res.status(400).json({ message: "Invalid token payload" });
+                    return errorResponse(res, 400, "Invalid token payload");
                 }
 
                 const tokens = generateTokens(decoded.userId);
@@ -97,6 +101,6 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
             }
         );
     } catch (err) {
-        res.status(500).json({ error: "Internal server error" });
+        errorResponse(res, 500, "Internal server error");
     }
 };
