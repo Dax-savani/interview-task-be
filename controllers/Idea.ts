@@ -153,7 +153,6 @@ export const addComment = async (req: Request<{ id: string }>, res: Response, ne
 // Update idea status (Admin only)
 export const updateIdeaStatus = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
-        if (!req.user || !req.user.isAdmin) return errorResponse(res, 403, "Insufficient permissions");
         const { status } = req.body;
         if (!status) return errorResponse(res, 400, "Invalid input");
 
@@ -171,7 +170,6 @@ export const updateIdeaStatus = async (req: Request<{ id: string }>, res: Respon
 // Get all ideas for admin
 export const getAllIdeasForAdmin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        if (!req.user || !req.user.isAdmin) return errorResponse(res, 403, "Insufficient permissions");
         const { page = 1, limit = 10 } = req.query;
         const pageNumber = parseInt(page as string, 10);
         const limitNumber = parseInt(limit as string, 10);
