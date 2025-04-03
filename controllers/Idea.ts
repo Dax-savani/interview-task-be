@@ -1,23 +1,23 @@
-import { NextFunction, Request, Response } from "express";
+import {NextFunction, Request, Response} from "express";
 import Idea from "../models/Idea";
 import mongoose from "mongoose";
 
-// Helper function for sending error responses
+
 const errorResponse = (res: Response, statusCode: number, message: string) => {
-    res.status(statusCode).json({ error: message });
+    res.status(statusCode).json({error: message});
 };
 
-// Create a new idea
+
 export const createIdea = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { title, description } = req.body;
+        const {title, description} = req.body;
         const user_id = req.user.userId;
 
         if (!title || !description) {
             return errorResponse(res, 400, "Title and description are required");
         }
 
-        const newIdea = new Idea({ title, description, user_id });
+        const newIdea = new Idea({title, description, user_id});
         const savedIdea = await newIdea.save();
         res.status(201).json(savedIdea);
     } catch (error) {
@@ -25,37 +25,58 @@ export const createIdea = async (req: Request, res: Response, next: NextFunction
     }
 };
 
-// Get all ideas
 export const getIdeas = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { page = 1, limit = 10 } = req.query;
+        const {page = 1, limit = 10, sortBy, date} = req.query;
         const pageNumber = parseInt(page as string, 10);
         const limitNumber = parseInt(limit as string, 10);
 
-        const ideas = await Idea.find({ status: "approved" })
-            .sort({ votes: -1 })
+        let filter: any = {status: "approved"};
+
+        if (date) {
+            const startOfDay = new Date(date as string);
+            const endOfDay = new Date(date as string);
+            endOfDay.setHours(23, 59, 59, 999);
+
+            filter.createdAt = {$gte: startOfDay, $lte: endOfDay};
+        }
+
+        let sort: any = {votes: -1};
+
+        if (sortBy === "latest") {
+            sort = {createdAt: -1};
+        } else if (sortBy === "oldest") {
+            sort = {createdAt: 1};
+        } else if (sortBy === "popular") {
+            sort = {};
+        }
+
+        const ideas = await Idea.find(filter)
+            .sort(sort)
             .skip((pageNumber - 1) * limitNumber)
             .limit(limitNumber)
-            .select("_id title description votes comments")
-            .lean(); // Convert MongoDB documents to plain objects
+            .select("_id title description votes comments createdAt")
+            .lean();
 
-        // Add vote count for each idea
         const updatedIdeas = ideas.map(idea => ({
             ...idea,
             upvotes: idea.votes.filter((vote: any) => vote.voteType === "up").length,
             downvotes: idea.votes.filter((vote: any) => vote.voteType === "down").length
         }));
 
-        const total = await Idea.countDocuments({ status: "approved" });
 
-        res.status(200).json({ ideas: updatedIdeas, total });
+        if (sortBy === "popular") {
+            updatedIdeas.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
+        }
+
+        const total = await Idea.countDocuments(filter);
+
+        res.status(200).json({ideas: updatedIdeas, total});
     } catch (error) {
         next(error);
     }
 };
 
-
-// Get a single idea by ID
 export const getIdeaById = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -72,7 +93,7 @@ export const getIdeaById = async (req: Request<{ id: string }>, res: Response, n
     }
 };
 
-// Update an idea
+
 export const updateIdea = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -84,14 +105,14 @@ export const updateIdea = async (req: Request<{ id: string }>, res: Response, ne
             return errorResponse(res, 404, "Idea not found");
         }
 
-        const updatedIdea = await Idea.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const updatedIdea = await Idea.findByIdAndUpdate(req.params.id, req.body, {new: true});
         res.status(200).json(updatedIdea);
     } catch (error) {
         next(error);
     }
 };
 
-// Delete an idea
+
 export const deleteIdea = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -104,18 +125,18 @@ export const deleteIdea = async (req: Request<{ id: string }>, res: Response, ne
         }
 
         await Idea.findByIdAndDelete(req.params.id);
-        res.status(200).json({ message: "Idea deleted successfully" });
+        res.status(200).json({message: "Idea deleted successfully"});
     } catch (error) {
         next(error);
     }
 };
-// Vote for an idea
+
 export const voteIdea = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!req.user) return errorResponse(res, 401, "Missing or invalid token");
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) return errorResponse(res, 400, "Invalid idea ID");
 
-        const { voteType } = req.body;
+        const {voteType} = req.body;
         if (!voteType) return errorResponse(res, 400, "Invalid input");
 
         const userId = req.user.userId;
@@ -130,40 +151,42 @@ export const voteIdea = async (req: Request<{ id: string }>, res: Response, next
                 idea.votes[existingVoteIndex].voteType = voteType;
             }
         } else {
-            idea.votes.push({ user_id: userId, voteType });
+            idea.votes.push({user_id: userId, voteType});
         }
 
         await idea.save();
-        res.status(200).json({ message: "Vote registered successfully", totalVotes: idea.votes.length });
+        res.status(200).json({message: "Vote registered successfully", totalVotes: idea.votes.length});
     } catch (error) {
         next(error);
     }
 };
 
-// Add a comment
+
 export const addComment = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!req.user) return errorResponse(res, 401, "Missing or invalid token");
-        const { content } = req.body;
+        const {content} = req.body;
         if (!content) return errorResponse(res, 400, "Invalid input");
 
         const user_id = req.user.userId;
         const idea = await Idea.findById(req.params.id);
         if (!idea) return errorResponse(res, 404, "Idea not found");
 
-        idea.comments.push({ user_id, content });
+        idea.comments.push({user_id, content});
         await idea.save();
 
-        res.status(201).json({ comment: idea.comments[idea.comments.length - 1], message: "Comment added" });
+        res.status(201).json({comment: idea.comments[idea.comments.length - 1], message: "Comment added"});
     } catch (error) {
         next(error);
     }
 };
 
-// Update idea status (Admin only)
-export const updateIdeaStatus = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
+
+export const updateIdeaStatus = async (req: Request<{
+    id: string
+}>, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { status } = req.body;
+        const {status} = req.body;
         if (!status) return errorResponse(res, 400, "Invalid input");
 
         const idea = await Idea.findById(req.params.id);
@@ -171,26 +194,26 @@ export const updateIdeaStatus = async (req: Request<{ id: string }>, res: Respon
 
         idea.status = status;
         await idea.save();
-        res.status(200).json({ message: "Status updated successfully", idea });
+        res.status(200).json({message: "Status updated successfully", idea});
     } catch (error) {
         next(error);
     }
 };
 
-// Get all ideas for admin
+
 export const getAllIdeasForAdmin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { page = 1, limit = 10 } = req.query;
+        const {page = 1, limit = 10} = req.query;
         const pageNumber = parseInt(page as string, 10);
         const limitNumber = parseInt(limit as string, 10);
 
         const ideas = await Idea.find()
-            .sort({ createdAt: -1 })
+            .sort({createdAt: -1})
             .skip((pageNumber - 1) * limitNumber)
             .limit(limitNumber);
 
         const total = await Idea.countDocuments();
-        res.status(200).json({ ideas, total });
+        res.status(200).json({ideas, total});
     } catch (error) {
         next(error);
     }
