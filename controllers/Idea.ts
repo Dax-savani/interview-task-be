@@ -55,7 +55,10 @@ export const getIdeas = async (req: Request, res: Response, next: NextFunction):
             .sort(sort)
             .skip((pageNumber - 1) * limitNumber)
             .limit(limitNumber)
-            .select("_id title description votes comments createdAt")
+            .select("_id title description votes comments createdAt user_id")
+            .populate("user_id", "username email")
+            .populate("votes.user_id", "username email")
+            .populate("comments.user_id", "username email")
             .lean();
 
         const updatedIdeas = ideas.map(idea => ({
