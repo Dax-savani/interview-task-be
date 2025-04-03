@@ -36,14 +36,24 @@ export const getIdeas = async (req: Request, res: Response, next: NextFunction):
             .sort({ votes: -1 })
             .skip((pageNumber - 1) * limitNumber)
             .limit(limitNumber)
-            .select("id title description votes comments");
+            .select("_id title description votes comments")
+            .lean(); // Convert MongoDB documents to plain objects
+
+        // Add vote count for each idea
+        const updatedIdeas = ideas.map(idea => ({
+            ...idea,
+            upvotes: idea.votes.filter((vote: any) => vote.voteType === "up").length,
+            downvotes: idea.votes.filter((vote: any) => vote.voteType === "down").length
+        }));
 
         const total = await Idea.countDocuments({ status: "approved" });
-        res.status(200).json({ ideas, total });
+
+        res.status(200).json({ ideas: updatedIdeas, total });
     } catch (error) {
         next(error);
     }
 };
+
 
 // Get a single idea by ID
 export const getIdeaById = async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
