@@ -6,19 +6,19 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Helper function to generate JWT tokens
+
 const generateTokens = (userId: string) => {
     const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
     const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, { expiresIn: "7d" });
     return { accessToken, refreshToken };
 };
 
-// Error response function
+
 const errorResponse = (res: Response, statusCode: number, message: string) => {
     res.status(statusCode).json({ error: message });
 };
 
-// ✅ Register User
+
 export const register = async (req: Request, res: Response): Promise<void> => {
     try {
         const { username, email, password } = req.body;
@@ -41,7 +41,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// ✅ Login User
+
 export const login = async (req: Request, res: Response): Promise<void> => {
     try {
         const { email, password } = req.body;
@@ -71,7 +71,6 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// ✅ Refresh Token
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
     try {
         const { refreshToken } = req.body;
@@ -96,8 +95,15 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
                     return errorResponse(res, 400, "Invalid token payload");
                 }
 
-                const tokens = generateTokens(decoded.userId);
-                res.json(tokens);
+
+
+                const accessToken = jwt.sign(
+                    { userId: decoded.userId },
+                    process.env.JWT_SECRET!,
+                    { expiresIn: "15m" }
+                );
+
+                res.json({ accessToken, refreshToken });
             }
         );
     } catch (err) {
